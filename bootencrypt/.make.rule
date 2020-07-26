@@ -1,0 +1,153 @@
+.PHONY: all clean
+#################################################
+-include $(ROOT)/mconfig
+
+#################################################
+CFLAGS  = $(PFLAGS)
+ifeq ($(LEVEL),debug) 
+	CFLAGS+=-D_DEBUG_ -g  -ggdb3
+else
+	CFLAGS+=-D_NDEBUG_ -O3
+endif
+ifneq ($(LIB_TYPE), static)
+	CFLAGS+=-fPIC
+endif
+
+#################################################
+MKDIR   = mkdir
+RM      = rm
+RMFLAGS = -fr
+PACK    = pack
+CP      = cp
+
+#################################################
+ifeq ($(strip $(FILE_TYPE)), c)  
+CC = $(CROSS)gcc  
+else  
+CC = $(CROSS)g++  
+endif 
+
+#################################################
+AR      = $(CROSS)ar
+ARFLAGS = crs 
+STRIP   = $(CROSS)strip
+#################################################
+DIR_EXE =$(ROOT)/bin
+DIR_LIB =$(ROOT)/libs
+DIR_OBJS = .objs
+DIR_DEPS = .deps
+#################################################
+DIRS = $(DIR_DEPS) $(DIR_OBJS) $(DIR_EXE) $(DIR_LIB)
+RMS  = $(DIR_OBJS) $(DIR_DEPS) 
+
+#################################################
+ifneq ($(TARGETS), "")
+TARGETS := $(addprefix $(DIR_EXE)/, $(TARGETS))
+RMS += $(TARGETS)
+endif
+
+#################################################
+ifneq ($(LIB), "")
+LIB := $(addprefix $(DIR_LIB)/, $(LIB))
+RMS += $(LIB)
+endif
+
+#################################################
+SRCS = $(wildcard $(SRC_DIR)/*.$(FILE_TYPE))  
+OBJS = $(patsubst $(SRC_DIR)/%.$(FILE_TYPE), $(DIR_OBJS)/%.o, $(SRCS))  
+DEPS = $(patsubst $(DIR_OBJS)/%.o, $(DIR_DEPS)/%.dep, $(OBJS))  
+
+#################################################
+ifneq ($(INC_DIRS), "")
+INC_DIRS := $(strip $(INC_DIRS))
+INC_DIRS := $(addprefix -I, $(INC_DIRS))
+endif
+#################################################
+LIB_DIRS +=$(DIR_LIB)
+ifneq ($(LIB_DIRS), "")
+LIB_DIRS := $(strip $(LIB_DIRS))
+LIB_DIRS := $(addprefix -L, $(LIB_DIRS))
+endif
+#################################################
+ifneq ($(STATIC_LIBS), "")
+STATIC_LIBS:=$(subst -l,$(DIR_LIB)/lib,$(STATIC_LIBS) )
+STATIC_LIBS:=$(addsuffix .a,$(STATIC_LIBS))
+endif
+#################################################
+ifneq ($(TARGETS), "")
+all: $(TARGETS)
+endif
+
+ifneq ($(LIB), "")
+all: $(LIB)
+endif
+
+#################################################
+ifeq ("$(wildcard $(DIR_DEPS))", "")
+DEPS_DIR_DEPS := $(DIR_DEPS)  #add by luop 2014.10.17
+endif
+
+ifneq ($(MAKECMDGOALS), clean)
+-include $(DEPS)
+endif
+#################################################
+$(DIRS):
+	$(MKDIR) $@
+#################################################
+$(LIB): $(DIR_LIB) $(OBJS)
+ifeq ($(LIB_TYPE), static)
+	-@$(RM) $@.* $(RMFLAG)
+ifneq ($(STATIC_LIBS), "")
+	-@for F in $(STATIC_LIBS);\
+	 do \
+		cd $(DIR_OBJS);\
+		$(AR) -x $$F;\
+		cd ..;\
+	done 
+endif
+	$(AR) $(ARFLAGS) $@.a $(DIR_OBJS)/*.o
+	#$(STRIP) --strip-unneede $@.a
+else
+	-@$(RM) $@.* $(RMFLAG)
+	$(CC) -shared  -o $@.so $(filter %.o, $^) $(STATIC_LIBS)
+#$(CC) -shared -fPCI  -o $@.so $(filter %.o, $^) $(STATIC_LIBS)
+#$(CC) -shared -fPCI  -o $@.so $(filter %.o, $^) -Wl,--whole-archive $(STATIC_LIBS) -Wl,--no-whole-archive
+#$(CC) -shared -o $@.so $(filter %.o, $^) -Wl,--whole-archive $(STATIC_LIBS) -Wl,--no-whole-archive
+ifeq ($(LEVEL),debug) 
+	$(warning DEBUG Model)
+else
+	$(STRIP) --strip-unneede $@.so
+endif
+
+endif
+
+#################################################
+$(DIR_OBJS)/%.o: $(DIR_OBJS) $(SRC_DIR)/%.$(FILE_TYPE)
+	$(CC) -o $@ -c $(filter %.$(FILE_TYPE), $^) $(CFLAGS) $(INC_DIRS)
+
+#################################################
+$(DIR_DEPS)/%.dep: $(DEPS_DIR_DEPS) $(SRC_DIR)/%.$(FILE_TYPE)
+	@echo "Making $@ ..."
+	@set -e;\
+	$(RM) $(RMFLAGS) $@.tmp ; \
+	$(CC) $(INC_DIRS) -E -MM $(filter %.$(FILE_TYPE), $^) > $@.tmp ; \
+	sed 's,\(.*\)\.o[ :]*,objs/\1.o $@: ,g' < $@.tmp > $@ ; \
+	$(RM) $(RMFLAGS) $@.tmp
+
+#################################################
+$(TARGETS): $(DIR_EXE) $(OBJS)
+	$(CC) $(CFLAGS)  $(LIB_DIRS) -o $@ $(filter %.o, $^) $(STATIC_LIBS) $(DYNAMIC_LIBS)
+ifeq ($(LEVEL),debug) 
+	$(warning DEBUG Model)
+else
+	$(STRIP) --strip-unneede $@
+#$(PACK) -qqq $@
+endif
+	@echo  -e "Make tagets end\n"
+
+#################################################
+clean:
+	-$(RM) $(RMFLAGS) $(RMS)
+	-$(RM) $(RMFLAGS) $(DIR_DEPS)
+
+#################################################

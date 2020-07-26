@@ -1,0 +1,1 @@
+objs/des.o .deps/des.dep: des.cpp ../include/common/des.h
